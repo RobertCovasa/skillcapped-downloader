@@ -1,6 +1,5 @@
-# Format: Course Name, Video Title, URL
-# Lines starting with # are ignored.
-# Example:
-Jungle Mastery, 01 - Intro to Jungle, LINK
-Jungle Mastery, 02 - Pathing Guide, LINK
-Top Lane Gods, 01 - Wave Management, LINK
+# --- Method 1: The Magic Way (Just the link) ---
+Skill Capped Video Link
+
+# --- Method 2: The Manual Way (Override names if you want) ---
+Custom Course Name, Custom Video Title, Skill Capped Video Link

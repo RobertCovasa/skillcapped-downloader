@@ -38,11 +38,11 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
 ## 🗺️ Roadmap
 - [x] **Quality Control:** Dynamic resolution selection with automatic fallback (Support for High/Standard Bitrate 1080p).
 - [x] **Metadata:** Embeds ID3 tags (Title, Album, Track, Artist) directly into MP4 files.
-- [ ] **Automation:** Auto-extract titles and crawl full courses from a single link.
+- [x] **Auto-Title Extraction:** Simply paste the URL; the script scrapes the Course and Video names automatically.
 - [ ] **GUI:** Simple interface for drag-and-drop.
 
 ## 🤝 Credits & Acknowledgments
-* **Original Script:** This project is a modernized fork of an open-source script found on GitHub. While the original author is unknown, this project builds upon their initial logic for parsing Skill-Capped URLs.
+* **Original Script:** This project is a modernized fork of the script by **mrhappyasthma**. This project builds upon their initial logic for parsing Skill-Capped URLs.
 * **Modernization:** Refactored to use `asyncio`, `aiohttp`, and strict `FFmpeg` muxing for stability and speed.
 
 ## ⚖️ Disclaimer

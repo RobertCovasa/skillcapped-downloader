@@ -9,16 +9,17 @@ from typing import List, Tuple, Optional, Dict
 import aiohttp
 import m3u8
 from tqdm.asyncio import tqdm
+from playwright.async_api import async_playwright
 
 # --- CONFIGURATION ---
 CONCURRENT_DOWNLOADS = 10
 FFMPEG_CHECK = True
 
 # Quality Priority List: The script tries these in order.
-# 4500 = 1080p @ 60fps, ~4500 kbps (High Bitrate / Best Quality)
-# 2500 = 1080p @ 60fps, ~2500 kbps (Standard Bitrate / Good Quality)
-# 1500 = 720p  @ 30fps, ~1500 kbps (HD / Medium)
-# 500  = 480p  @ 30fps, ~500 kbps (SD / Low)
+# 4500 = 1080p @ 60fps (Best)
+# 2500 = 1080p @ 60fps (Standard)
+# 1500 = 720p  @ 30fps (Medium)
+# 500  = 480p  @ 30fps (Low)
 QUALITY_PRIORITY = ["4500", "2500", "1500", "500"]
 
 class SkillCappedDownloader:
@@ -31,11 +32,7 @@ class SkillCappedDownloader:
         return clean.strip().rstrip('.')
 
     def parse_title_metadata(self, video_name: str) -> Tuple[str, Optional[str]]:
-        """
-        Extracts track number and clean title from strings like "01 - Intro".
-        Returns: (Clean Title, Track Number)
-        """
-        # Regex to find starting number (e.g. "01 - ", "1. ", "01 ")
+        """Extracts track number and clean title from strings like '01 - Intro'."""
         match = re.match(r'^(\d+)[ .-]+(.*)', video_name)
         if match:
             track_num = match.group(1)
@@ -44,7 +41,6 @@ class SkillCappedDownloader:
         return video_name, None
 
     async def check_quality_url(self, session, video_id, quality):
-        """Checks if a specific quality exists for the given ID."""
         url = self.api_template.format(video_id, quality)
         try:
             async with session.head(url) as resp:
@@ -53,11 +49,12 @@ class SkillCappedDownloader:
             return None
 
     async def find_valid_manifest(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        # Extract potential IDs from the URL (last 3 parts)
         parts = [p for p in url.split('/') if p and '.' not in p]
         candidates = parts[-3:] 
         candidates.reverse()
 
-        print(f"[*] Probing URL: {url}")
+        print(f"[*] Probing URL for ID: {url}")
         
         async with aiohttp.ClientSession() as session:
             for video_id in candidates:
@@ -77,7 +74,7 @@ class SkillCappedDownloader:
             print(f"[+] Skipping '{file_name}' (already exists).")
             return
 
-        print(f"[*] Processing: {file_name}")
+        print(f"[*] Downloading: {file_name}")
 
         # 1. Fetch Manifest
         async with aiohttp.ClientSession() as session:
@@ -96,11 +93,8 @@ class SkillCappedDownloader:
         # 3. Download Segments
         temp_dir.mkdir(parents=True, exist_ok=True)
         segment_files = []
-        
         semaphore = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
         
-        print(f"    - Downloading {len(playlist.segments)} segments...")
-
         async with aiohttp.ClientSession() as session:
             tasks = []
             for i, segment in enumerate(playlist.segments):
@@ -117,7 +111,7 @@ class SkillCappedDownloader:
                 for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), unit="seg", desc="    Progress"):
                     await f
 
-        # 4. Mux to MP4 with Metadata
+        # 4. Mux to MP4
         await self.merge_segments(segment_files, final_mp4_path, temp_dir, metadata)
 
     async def fetch_segment(self, session, semaphore, url, path):
@@ -146,26 +140,24 @@ class SkillCappedDownloader:
 
         if FFMPEG_CHECK:
             try:
-                # Build FFmpeg command with metadata
                 cmd = [
                     "ffmpeg", "-y", "-f", "concat", "-safe", "0",
                     "-i", str(list_file_path),
-                    "-c", "copy",  # Copy stream (no re-encode)
-                    # Metadata Flags
+                    "-c", "copy",
                     "-metadata", f"title={metadata.get('title', '')}",
                     "-metadata", f"album={metadata.get('album', '')}",
                     "-metadata", "artist=SkillCapped",
+                    # Suppress output unless error
+                    "-loglevel", "error" 
                 ]
-                
                 if metadata.get('track'):
                     cmd.extend(["-metadata", f"track={metadata['track']}"])
 
                 cmd.append(str(output_path))
 
-                process = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
-                )
+                process = await asyncio.create_subprocess_exec(*cmd)
                 await process.wait()
+                
                 if process.returncode == 0:
                     shutil.rmtree(temp_dir)
                     print(f"    [+] Finished: {output_path.name}")
@@ -174,11 +166,49 @@ class SkillCappedDownloader:
             except FileNotFoundError:
                 print("[!] FFmpeg not found.")
         else:
+            # Simple concatenation fallback
             with open(output_path.with_suffix('.ts'), 'wb') as merged:
                 for seg in segment_files:
                     with open(seg, 'rb') as f:
                         merged.write(f.read())
             shutil.rmtree(temp_dir)
+
+# --- SCRAPER HELPER ---
+async def scrape_details(page, url):
+    """Uses Playwright page to extract Course Name and Video Title."""
+    print(f"[*] Scraping details for: {url}")
+    try:
+        # Fast load strategy: 'domcontentloaded' ignores heavy assets (video/images)
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        
+        # Wait for the Course Title element (Proof that JS loaded)
+        try:
+            await page.wait_for_selector(".css-1rwlwny", state="visible", timeout=10000)
+        except:
+            print(f"    [!] Timeout waiting for page content. Skipping auto-detect.")
+            return None, None
+
+        # 1. Course Name
+        course_el = await page.query_selector(".css-1rwlwny")
+        raw_course = await course_el.inner_text() if course_el else "Unknown Course"
+        course_name = " ".join(raw_course.split()).title() # Clean & Title Case
+
+        # 2. Video Title (Split across multiple divs)
+        parts = await page.query_selector_all(".css-1juj8ih")
+        title_words = []
+        for part in parts:
+            text = await part.inner_text()
+            if text.strip():
+                title_words.append(text.strip())
+        
+        video_title = " ".join(title_words).title() if title_words else "Unknown Video"
+
+        print(f"    [+] Detected: {course_name} | {video_title}")
+        return course_name, video_title
+
+    except Exception as e:
+        print(f"    [!] Scraper Error: {e}")
+        return None, None
 
 async def main():
     if not os.path.exists("inputs.txt"):
@@ -186,48 +216,82 @@ async def main():
         return
 
     with open("inputs.txt", "r") as f:
-        lines = [
-            line.strip() 
-            for line in f.readlines() 
-            if line.strip() and not line.strip().startswith("#")
-        ]
-
-    downloader = SkillCappedDownloader()
+        # Filter comments and empty lines
+        lines = [line.strip() for line in f.readlines() if line.strip() and not line.strip().startswith("#")]
 
     if not lines:
-        print("[!] No valid tasks found in inputs.txt.")
+        print("[!] No tasks found.")
         return
 
-    for line in lines:
-        parts = line.split(",")
-        if len(parts) < 3: continue
-        
-        raw_course_name = parts[0].strip()
-        raw_video_name = parts[1].strip()
-        url = parts[2].strip()
+    downloader = SkillCappedDownloader()
+    
+    # Initialize Playwright (Browser) only if needed
+    playwright = None
+    browser = None
+    page = None
 
-        # Sanitize Filenames
-        course_name = downloader.sanitize_filename(raw_course_name)
-        video_name = downloader.sanitize_filename(raw_video_name)
+    # Check if we have any URL-only lines that need scraping
+    needs_scraping = any(len(line.split(",")) < 3 for line in lines)
 
-        # Parse Metadata (Track number & Clean title)
-        meta_title, meta_track = downloader.parse_title_metadata(raw_video_name)
-        
-        metadata = {
-            "album": raw_course_name,
-            "title": meta_title,
-            "track": meta_track
-        }
+    if needs_scraping:
+        print("[*] Launching browser for auto-detection...")
+        playwright = await async_playwright().start()
+        # Headless=True is faster. If it hangs, set to False.
+        browser = await playwright.firefox.launch(headless=True)
+        page = await browser.new_page()
 
-        output_dir = Path(course_name)
-        output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for line in lines:
+            parts = line.split(",")
+            
+            # --- CASE 1: Full Manual Input (Legacy) ---
+            if len(parts) >= 3:
+                raw_course = parts[0].strip()
+                raw_video = parts[1].strip()
+                url = parts[2].strip()
+            
+            # --- CASE 2: URL Only (Auto-Magic) ---
+            else:
+                url = parts[0].strip()
+                if not url.startswith("http"):
+                    print(f"[!] Invalid line skipped: {line}")
+                    continue
+                
+                # Use the browser to find names
+                raw_course, raw_video = await scrape_details(page, url)
+                
+                if not raw_course or not raw_video:
+                    print(f"[!] Could not auto-detect names for {url}. Skipping.")
+                    continue
 
-        video_id, manifest_url, quality = await downloader.find_valid_manifest(url)
+            # Standard Processing
+            course_name = downloader.sanitize_filename(raw_course)
+            video_name = downloader.sanitize_filename(raw_video)
+            
+            # Extract clean metadata
+            meta_title, meta_track = downloader.parse_title_metadata(raw_video)
+            metadata = {
+                "album": raw_course,
+                "title": meta_title,
+                "track": meta_track
+            }
 
-        if video_id:
-            await downloader.download_video(video_id, video_name, output_dir, manifest_url, metadata)
-        else:
-            print(f"[!] Could not find valid video ID or quality for: {url}")
+            output_dir = Path(course_name)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            video_id, manifest_url, quality = await downloader.find_valid_manifest(url)
+
+            if video_id:
+                await downloader.download_video(video_id, video_name, output_dir, manifest_url, metadata)
+            else:
+                print(f"[!] Could not find video ID for: {url}")
+
+    finally:
+        # Clean up browser
+        if browser:
+            await browser.close()
+        if playwright:
+            await playwright.stop()
 
     print("\nAll downloads completed.")
 
