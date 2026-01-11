@@ -1,0 +1,6 @@
+# Format: Course Name, Video Title, URL
+# Lines starting with # are ignored.
+# Example:
+Jungle Mastery, 01 - Intro to Jungle, LINK
+Jungle Mastery, 02 - Pathing Guide, LINK
+Top Lane Gods, 01 - Wave Management, LINK
