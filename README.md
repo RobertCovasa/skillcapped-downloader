@@ -37,10 +37,10 @@ A fast, async downloader for Skill-Capped. This tool automatically organizes vid
     **Example `inputs.txt`:**
     ```text
     # --- Magic Mode ---
-    [https://www.skill-capped.com/lol/browse/course/123/456](https://www.skill-capped.com/lol/browse/course/123/456)
+    https://www.skill-capped.com/lol/browse/course/123/456
 
     # --- Manual Override ---
-    Jungle Guide, 01 - Intro, [https://www.skill-capped.com/lol/browse/course/123/456](https://www.skill-capped.com/lol/browse/course/123/456)
+    Jungle Guide, 01 - Intro, https://www.skill-capped.com/lol/browse/course/123/456
     ```
 
 2.  **Run the script:**
@@ -58,7 +58,7 @@ You can tweak these variables at the top of the script:
 - [x] **Quality Control:** Dynamic resolution selection with automatic fallback (Support for High/Standard Bitrate 1080p).
 - [x] **Metadata:** Embed ID3 tags (Title, Album, Track, Artist) directly into MP4 files.
 - [x] **Auto-Title Extraction:** "Magic Mode" scrapes Course and Video names via Playwright.
-- [ ] **GUI:** Simple interface for drag-and-drop.
+- [x] **GUI:** Simple interface.
 
 ## 🤝 Credits & Acknowledgments
 * **Original Script:** This project is a modernized fork of the script by **mrhappyasthma**. This project builds upon their initial logic for parsing Skill-Capped URLs.
