@@ -4,7 +4,7 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
 
 ## ⚡ Features
 * **Fast & Resumable:** Concurrent downloads via `aiohttp`; restarts exactly where it left off.
-* **Adaptive Quality:** Automatically prioritizes **1080p @ 60fps (High Bitrate)**. If unavailable, it intelligently falls back to Standard 1080p (60fps), 720p (30fps), or 480p (30fps).
+* **Adaptive Quality:** Automatically prioritizes **1080p @ 60fps (High Bitrate)**. If unavailable, it falls back to Standard 1080p (60fps), 720p (30fps), or 480p (30fps).
 * **High Quality Output:** Lossless `.ts` to `.mp4` muxing (no re-encoding).
 * **Smart Parsing:** Auto-detects video IDs from standard URLs.
 
@@ -22,7 +22,7 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
 1.  **Configure `inputs.txt`:**
     Add lines in the format: `Course Name, Video Title, URL`
     ```csv
-    Jungle Guide, 01 - Intro, [https://www.skill-capped.com/](https://www.skill-capped.com/)...
+    Jungle Guide, 01 - Intro, LINK
     
     # Comments are supported
     ```
@@ -37,8 +37,8 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
 
 ## 🗺️ Roadmap
 - [x] **Quality Control:** Dynamic resolution selection with automatic fallback (Support for High/Standard Bitrate 1080p).
+- [x] **Metadata:** Embeds ID3 tags (Title, Album, Track, Artist) directly into MP4 files.
 - [ ] **Automation:** Auto-extract titles and crawl full courses from a single link.
-- [ ] **Metadata:** Embed ID3 tags (Title, Album, Track) into MP4s.
 - [ ] **GUI:** Simple interface for drag-and-drop.
 
 ## 🤝 Credits & Acknowledgments

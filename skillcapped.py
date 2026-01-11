@@ -4,7 +4,7 @@ import shutil
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 import aiohttp
 import m3u8
@@ -23,13 +23,25 @@ QUALITY_PRIORITY = ["4500", "2500", "1500", "500"]
 
 class SkillCappedDownloader:
     def __init__(self):
-        # Template now expects {video_id} and {quality}
         self.api_template = "https://www.skill-capped.com/api/video/{}/{}.m3u8"
 
     def sanitize_filename(self, name: str) -> str:
         """Removes characters that are illegal in Windows filenames."""
         clean = re.sub(r'[<>:"/\\|?*]', '', name)
         return clean.strip().rstrip('.')
+
+    def parse_title_metadata(self, video_name: str) -> Tuple[str, Optional[str]]:
+        """
+        Extracts track number and clean title from strings like "01 - Intro".
+        Returns: (Clean Title, Track Number)
+        """
+        # Regex to find starting number (e.g. "01 - ", "1. ", "01 ")
+        match = re.match(r'^(\d+)[ .-]+(.*)', video_name)
+        if match:
+            track_num = match.group(1)
+            clean_title = match.group(2).strip()
+            return clean_title, track_num
+        return video_name, None
 
     async def check_quality_url(self, session, video_id, quality):
         """Checks if a specific quality exists for the given ID."""
@@ -41,15 +53,7 @@ class SkillCappedDownloader:
             return None
 
     async def find_valid_manifest(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """
-        Smart Probe: 
-        1. Identifies the Video ID from the URL.
-        2. Iterates through QUALITY_PRIORITY to find the best available stream.
-        Returns: (video_id, manifest_url, found_quality)
-        """
         parts = [p for p in url.split('/') if p and '.' not in p]
-        
-        # Check last 3 segments in reverse order to find the ID
         candidates = parts[-3:] 
         candidates.reverse()
 
@@ -57,7 +61,6 @@ class SkillCappedDownloader:
         
         async with aiohttp.ClientSession() as session:
             for video_id in candidates:
-                # For each candidate ID, try our quality list in order
                 for q in QUALITY_PRIORITY:
                     valid_url = await self.check_quality_url(session, video_id, q)
                     if valid_url:
@@ -66,7 +69,7 @@ class SkillCappedDownloader:
         
         return None, None, None
 
-    async def download_video(self, video_id: str, file_name: str, output_folder: Path, manifest_url: str):
+    async def download_video(self, video_id: str, file_name: str, output_folder: Path, manifest_url: str, metadata: Dict):
         final_mp4_path = output_folder / f"{file_name}.mp4"
         temp_dir = output_folder / f"temp_{video_id}"
 
@@ -105,7 +108,6 @@ class SkillCappedDownloader:
                 seg_path = temp_dir / seg_name
                 segment_files.append(seg_path)
                 
-                # Resumable check
                 if seg_path.exists() and seg_path.stat().st_size > 0:
                     continue
 
@@ -115,8 +117,8 @@ class SkillCappedDownloader:
                 for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), unit="seg", desc="    Progress"):
                     await f
 
-        # 4. Mux to MP4
-        await self.merge_segments(segment_files, final_mp4_path, temp_dir)
+        # 4. Mux to MP4 with Metadata
+        await self.merge_segments(segment_files, final_mp4_path, temp_dir, metadata)
 
     async def fetch_segment(self, session, semaphore, url, path):
         async with semaphore:
@@ -133,7 +135,7 @@ class SkillCappedDownloader:
                     retries -= 1
                     await asyncio.sleep(1)
 
-    async def merge_segments(self, segment_files: List[Path], output_path: Path, temp_dir: Path):
+    async def merge_segments(self, segment_files: List[Path], output_path: Path, temp_dir: Path, metadata: Dict):
         print(f"    - Merging into {output_path.name}...")
         
         list_file_path = temp_dir / "files.txt"
@@ -144,10 +146,22 @@ class SkillCappedDownloader:
 
         if FFMPEG_CHECK:
             try:
+                # Build FFmpeg command with metadata
                 cmd = [
                     "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(list_file_path), "-c", "copy", str(output_path)
+                    "-i", str(list_file_path),
+                    "-c", "copy",  # Copy stream (no re-encode)
+                    # Metadata Flags
+                    "-metadata", f"title={metadata.get('title', '')}",
+                    "-metadata", f"album={metadata.get('album', '')}",
+                    "-metadata", "artist=SkillCapped",
                 ]
+                
+                if metadata.get('track'):
+                    cmd.extend(["-metadata", f"track={metadata['track']}"])
+
+                cmd.append(str(output_path))
+
                 process = await asyncio.create_subprocess_exec(
                     *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
                 )
@@ -168,11 +182,10 @@ class SkillCappedDownloader:
 
 async def main():
     if not os.path.exists("inputs.txt"):
-        print("Error: inputs.txt not found. Please create it with format: Course Name, Video Name, URL")
+        print("Error: inputs.txt not found.")
         return
 
     with open("inputs.txt", "r") as f:
-        # Read lines, ignore empty lines and comments starting with #
         lines = [
             line.strip() 
             for line in f.readlines() 
@@ -187,28 +200,32 @@ async def main():
 
     for line in lines:
         parts = line.split(",")
-        
-        if len(parts) < 3:
-            print(f"[!] Skipped invalid line: {line}")
-            continue
+        if len(parts) < 3: continue
         
         raw_course_name = parts[0].strip()
         raw_video_name = parts[1].strip()
         url = parts[2].strip()
 
-        # Sanitize Names
+        # Sanitize Filenames
         course_name = downloader.sanitize_filename(raw_course_name)
         video_name = downloader.sanitize_filename(raw_video_name)
 
-        # Create Folder
+        # Parse Metadata (Track number & Clean title)
+        meta_title, meta_track = downloader.parse_title_metadata(raw_video_name)
+        
+        metadata = {
+            "album": raw_course_name,
+            "title": meta_title,
+            "track": meta_track
+        }
+
         output_dir = Path(course_name)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Find ID and Best Quality
         video_id, manifest_url, quality = await downloader.find_valid_manifest(url)
 
         if video_id:
-            await downloader.download_video(video_id, video_name, output_dir, manifest_url)
+            await downloader.download_video(video_id, video_name, output_dir, manifest_url, metadata)
         else:
             print(f"[!] Could not find valid video ID or quality for: {url}")
 
