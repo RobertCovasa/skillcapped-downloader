@@ -36,7 +36,7 @@ A modular tool to download Skill-Capped videos. Supports "Magic Mode" (URL-only 
 ### Option B: The CLI (Text File)
 1.  Open `inputs.txt` and add your links:
     ```text
-    [https://www.skill-capped.com/lol/browse/course/123/456](ttps://www.skill-capped.com/lol/browse/course/123/456)
+    https://www.skill-capped.com/lol/browse/course/123/456
     ```
 2.  Run the script:
     ```bash
