@@ -161,9 +161,18 @@ async def main():
         return
 
     with open("inputs.txt", "r") as f:
-        lines = [l.strip() for l in f.readlines() if l.strip()]
+        # Read all lines, strip whitespace, and filter out empty lines AND comments
+        lines = [
+            line.strip() 
+            for line in f.readlines() 
+            if line.strip() and not line.strip().startswith("#")
+        ]
 
     downloader = SkillCappedDownloader()
+
+    if not lines:
+        print("[!] No valid tasks found in inputs.txt (check if lines are commented out).")
+        return
 
     for line in lines:
         parts = line.split(",")
