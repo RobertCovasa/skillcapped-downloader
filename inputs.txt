@@ -1,5 +1,5 @@
 # --- Method 1: The Magic Way (Just the link) ---
-Skill Capped Video Link
+https://www.skill-capped.com/lol/browse/course/c25njmnz0n/tqbmlkwjkt
 
 # --- Method 2: The Manual Way (Override names if you want) ---
-Custom Course Name, Custom Video Title, Skill Capped Video Link
+# Custom Course Name, Custom Video Title, Skill Capped Video Link
