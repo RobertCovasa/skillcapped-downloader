@@ -4,8 +4,9 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
 
 ## ⚡ Features
 * **Fast & Resumable:** Concurrent downloads via `aiohttp`; restarts exactly where it left off.
-* **High Quality:** Lossless `.ts` to `.mp4` muxing (no re-encoding).
-* **Smart:** Auto-detects video IDs from URLs.
+* **Adaptive Quality:** Automatically prioritizes **1080p @ 60fps (High Bitrate)**. If unavailable, it intelligently falls back to Standard 1080p (60fps), 720p (30fps), or 480p (30fps).
+* **High Quality Output:** Lossless `.ts` to `.mp4` muxing (no re-encoding).
+* **Smart Parsing:** Auto-detects video IDs from standard URLs.
 
 ## 🛠️ Setup
 1.  **Install Python 3.8+**
@@ -21,8 +22,8 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
 1.  **Configure `inputs.txt`:**
     Add lines in the format: `Course Name, Video Title, URL`
     ```csv
-    Jungle Guide, 01 - Intro, URL
-
+    Jungle Guide, 01 - Intro, [https://www.skill-capped.com/](https://www.skill-capped.com/)...
+    
     # Comments are supported
     ```
 
@@ -31,17 +32,17 @@ A fast, async downloader for Skill-Capped. Automatically organizes videos into f
     python skillcapped.py
     ```
     * **Note 1:** `CONCURRENT_DOWNLOADS = 10` (Adjust based on your internet speed)
-    * **Note 2:** `FFMPEG_CHECK = True` (Set to `False` if you cannot install FFmpeg; output will be `.ts` files)
+    * **Note 2:** `QUALITY_PRIORITY = ["4500", "2500", "1500", "500"]` (Customize preferred resolution order)
+    * **Note 3:** `FFMPEG_CHECK = True` (Set to `False` if you cannot install FFmpeg; output will be `.ts` files)
 
 ## 🗺️ Roadmap
+- [x] **Quality Control:** Dynamic resolution selection with automatic fallback (Support for High/Standard Bitrate 1080p).
 - [ ] **Automation:** Auto-extract titles and crawl full courses from a single link.
-- [ ] **Quality Control:** Dynamic resolution selection (1080p/720p).
 - [ ] **Metadata:** Embed ID3 tags (Title, Album, Track) into MP4s.
 - [ ] **GUI:** Simple interface for drag-and-drop.
 
 ## 🤝 Credits & Acknowledgments
-
-* **Original Script:** This project is a modernized fork of an open-source script found on GitHub. While I cannot find the original author, this project builds upon their initial logic for parsing Skill-Capped URLs.
+* **Original Script:** This project is a modernized fork of an open-source script found on GitHub. While the original author is unknown, this project builds upon their initial logic for parsing Skill-Capped URLs.
 * **Modernization:** Refactored to use `asyncio`, `aiohttp`, and strict `FFmpeg` muxing for stability and speed.
 
 ## ⚖️ Disclaimer

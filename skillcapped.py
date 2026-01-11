@@ -4,7 +4,7 @@ import shutil
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import aiohttp
 import m3u8
@@ -12,48 +12,59 @@ from tqdm.asyncio import tqdm
 
 # --- CONFIGURATION ---
 CONCURRENT_DOWNLOADS = 10
-FFMPEG_CHECK = True  # Set False if you do not have FFmpeg installed
+FFMPEG_CHECK = True
+
+# Quality Priority List: The script tries these in order.
+# 4500 = 1080p @ 60fps, ~4500 kbps (High Bitrate / Best Quality)
+# 2500 = 1080p @ 60fps, ~2500 kbps (Standard Bitrate / Good Quality)
+# 1500 = 720p  @ 30fps, ~1500 kbps (HD / Medium)
+# 500  = 480p  @ 30fps, ~500 kbps (SD / Low)
+QUALITY_PRIORITY = ["4500", "2500", "1500", "500"]
 
 class SkillCappedDownloader:
     def __init__(self):
-        self.api_template = "https://www.skill-capped.com/api/video/{}/4500.m3u8"
+        # Template now expects {video_id} and {quality}
+        self.api_template = "https://www.skill-capped.com/api/video/{}/{}.m3u8"
 
     def sanitize_filename(self, name: str) -> str:
         """Removes characters that are illegal in Windows filenames."""
-        # Remove invalid chars: < > : " / \ | ? *
         clean = re.sub(r'[<>:"/\\|?*]', '', name)
-        # Strip trailing spaces or dots (Windows doesn't like file names ending in .)
         return clean.strip().rstrip('.')
 
-    async def probe_video_id(self, session, url_segment):
-        """Checks if a URL segment is a valid Video ID by hitting the API."""
-        manifest_url = self.api_template.format(url_segment)
+    async def check_quality_url(self, session, video_id, quality):
+        """Checks if a specific quality exists for the given ID."""
+        url = self.api_template.format(video_id, quality)
         try:
-            async with session.head(manifest_url) as resp:
-                return manifest_url if resp.status == 200 else None
+            async with session.head(url) as resp:
+                return url if resp.status == 200 else None
         except:
             return None
 
-    async def find_valid_manifest(self, url: str):
+    async def find_valid_manifest(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
-        Smart Probe: Splits the URL and checks the last few segments 
-        to see which one acts as the valid Video ID.
+        Smart Probe: 
+        1. Identifies the Video ID from the URL.
+        2. Iterates through QUALITY_PRIORITY to find the best available stream.
+        Returns: (video_id, manifest_url, found_quality)
         """
         parts = [p for p in url.split('/') if p and '.' not in p]
         
-        # Check last 3 segments in reverse order
+        # Check last 3 segments in reverse order to find the ID
         candidates = parts[-3:] 
         candidates.reverse()
 
         print(f"[*] Probing URL: {url}")
         
         async with aiohttp.ClientSession() as session:
-            for candidate in candidates:
-                valid_url = await self.probe_video_id(session, candidate)
-                if valid_url:
-                    return candidate, valid_url
+            for video_id in candidates:
+                # For each candidate ID, try our quality list in order
+                for q in QUALITY_PRIORITY:
+                    valid_url = await self.check_quality_url(session, video_id, q)
+                    if valid_url:
+                        print(f"    -> Found ID: {video_id} | Quality: {q}")
+                        return video_id, valid_url, q
         
-        return None, None
+        return None, None, None
 
     async def download_video(self, video_id: str, file_name: str, output_folder: Path, manifest_url: str):
         final_mp4_path = output_folder / f"{file_name}.mp4"
@@ -161,7 +172,7 @@ async def main():
         return
 
     with open("inputs.txt", "r") as f:
-        # Read all lines, strip whitespace, and filter out empty lines AND comments
+        # Read lines, ignore empty lines and comments starting with #
         lines = [
             line.strip() 
             for line in f.readlines() 
@@ -171,36 +182,35 @@ async def main():
     downloader = SkillCappedDownloader()
 
     if not lines:
-        print("[!] No valid tasks found in inputs.txt (check if lines are commented out).")
+        print("[!] No valid tasks found in inputs.txt.")
         return
 
     for line in lines:
         parts = line.split(",")
         
-        # VALIDATION: We now expect 3 parts (Course, Video Name, URL)
         if len(parts) < 3:
-            print(f"[!] Skipped invalid line (needs 3 parts): {line}")
+            print(f"[!] Skipped invalid line: {line}")
             continue
         
         raw_course_name = parts[0].strip()
         raw_video_name = parts[1].strip()
         url = parts[2].strip()
 
-        # Sanitize Names for Windows
+        # Sanitize Names
         course_name = downloader.sanitize_filename(raw_course_name)
         video_name = downloader.sanitize_filename(raw_video_name)
 
-        # Create Course Folder
+        # Create Folder
         output_dir = Path(course_name)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Find ID and Download
-        video_id, manifest_url = await downloader.find_valid_manifest(url)
+        # Find ID and Best Quality
+        video_id, manifest_url, quality = await downloader.find_valid_manifest(url)
 
         if video_id:
             await downloader.download_video(video_id, video_name, output_dir, manifest_url)
         else:
-            print(f"[!] Could not find video ID for: {url}")
+            print(f"[!] Could not find valid video ID or quality for: {url}")
 
     print("\nAll downloads completed.")
 
